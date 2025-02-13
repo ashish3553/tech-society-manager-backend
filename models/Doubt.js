@@ -1,5 +1,25 @@
-// server/models/Doubt.js
 const mongoose = require('mongoose');
+
+const ConversationSchema = new mongoose.Schema({
+  sender: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User', 
+    required: true 
+  },
+  message: { 
+    type: String, 
+    required: true 
+  },
+  timestamp: { 
+    type: Date, 
+    default: Date.now 
+  },
+  type: { 
+    type: String, 
+    enum: ['doubt', 'reply', 'follow-up', 'resolve'], 
+    required: true 
+  }
+});
 
 const DoubtSchema = new mongoose.Schema({
   assignment: { 
@@ -12,19 +32,14 @@ const DoubtSchema = new mongoose.Schema({
     ref: 'User', 
     required: true 
   },
-  doubtText: { 
-    type: String, 
-    required: true 
+  conversation: { 
+    type: [ConversationSchema], 
+    default: [] 
   },
-  // Add a default value so that if no status is provided, it defaults to "not attempted"
-  responseStatus: { 
+  currentStatus: { 
     type: String, 
-    required: true, 
-    default: 'not attempted' 
-  },
-  reply: { 
-    type: String, 
-    default: '' 
+    enum: ['new', 'replied', 'unsatisfied', 'review', 'resolved'],
+    default: 'new' 
   },
   resolved: { 
     type: Boolean, 

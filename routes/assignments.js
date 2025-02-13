@@ -212,8 +212,11 @@ router.get('/:id', auth, async (req, res) => {
 // PUT /api/assignments/:id/status
 // For updating a student's (or volunteer's) response to an assignment.
 // Allowed for roles: student and volunteer.
+// In server/routes/assignments.js
 router.put('/:id/status', auth, permit('student', 'volunteer'), async (req, res) => {
   const { responseStatus, submissionUrl, screenshots, learningNotes } = req.body;
+  
+  // Validate based on responseStatus
   if (responseStatus === "solved") {
     if (!submissionUrl || submissionUrl.trim() === "") {
       return res.status(400).json({ msg: "For 'solved' status, a submissionUrl is required as proof." });
@@ -223,17 +226,23 @@ router.put('/:id/status', auth, permit('student', 'volunteer'), async (req, res)
       return res.status(400).json({ msg: "For statuses other than 'solved', please provide a problem description in learningNotes." });
     }
   }
+  
   try {
+    // Find the assignment
     let assignment = await Assignment.findById(req.params.id);
     if (!assignment) {
       return res.status(404).json({ msg: 'Assignment not found' });
     }
+    
+    // For personal assignments, ensure the student is assigned
     if (assignment.type === 'personal') {
       const isAssigned = assignment.assignedTo.map(String).includes(String(req.user.id));
       if (!isAssigned) {
         return res.status(403).json({ msg: 'Not authorized for this assignment' });
       }
     }
+    
+    // Update the assignment's responses array (this part remains the same)
     const responseIndex = assignment.responses.findIndex(
       (resp) => String(resp.student) === String(req.user.id)
     );
@@ -249,35 +258,53 @@ router.put('/:id/status', auth, permit('student', 'volunteer'), async (req, res)
     } else {
       assignment.responses[responseIndex] = updatedResponse;
     }
+    
     assignment = await assignment.save();
-    // If responseStatus is not "solved", create or update a Doubt.
+    
+    // Now update the Doubt conversation.
+    // We want the student's response (when not solved) to appear in the conversation thread.
     if (responseStatus !== 'solved') {
-      const existingDoubt = await Doubt.findOne({
+      // Check if a doubt already exists for this assignment and student that is not resolved.
+      let doubt = await Doubt.findOne({
         assignment: req.params.id,
         student: req.user.id,
         resolved: false
       });
-      if (existingDoubt) {
-        existingDoubt.doubtText = learningNotes;
-        existingDoubt.responseStatus = responseStatus;
-        await existingDoubt.save();
+      
+      if (doubt) {
+        // Append a new follow-up entry
+        doubt.conversation.push({
+          sender: req.user.id,
+          message: learningNotes,
+          type: 'follow-up'
+        });
+        // Update the currentStatus to "unsatisfied"
+        doubt.currentStatus = 'unsatisfied';
+        await doubt.save();
       } else {
-        const newDoubt = new Doubt({
+        // Create a new Doubt with the initial conversation entry.
+        doubt = new Doubt({
           assignment: req.params.id,
           student: req.user.id,
-          doubtText: learningNotes,
-          responseStatus: responseStatus,
+          conversation: [{
+            sender: req.user.id,
+            message: learningNotes,
+            type: 'doubt'
+          }],
+          currentStatus: 'new',
           resolved: false
         });
-        await newDoubt.save();
+        await doubt.save();
       }
     }
+    
     res.json(assignment);
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
   }
 });
+
 
 // PUT /api/assignments/:id/upload
 // Allows a student/volunteer to upload screenshots and learning notes.

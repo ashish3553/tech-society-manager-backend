@@ -4,58 +4,65 @@ const Message = require('../models/Message');
 const auth = require('../middleware/auth');
 const permit = require('../middleware/permit');
 const User = require('../models/User');
+const sendEmail = require('../utils/mailer'); // Import the Mailjet mailer
 
-// POST /api/messages - Create a new message (for mentors/admins)
+
+// POST /api/messages - Create a new message
 router.post('/', auth, permit('student','volunteer','mentor', 'admin'), async (req, res) => {
-    console.log("Message reach 1");
-    const { subject, body, isPublic, recipients, links } = req.body;
-    console.log(req.body);
-  
-    if (!subject || !body) {
-      return res.status(400).json({ msg: 'Subject and body are required.' });
+  const { subject, body, isPublic, recipients, links } = req.body;
+
+  if (!subject || !body) {
+    return res.status(400).json({ msg: 'Subject and body are required.' });
+  }
+
+  let recipientIds = [];
+  if (!isPublic) {
+    if (!recipients || recipients.length === 0) {
+      return res.status(400).json({ msg: 'Personal messages must include recipients.' });
     }
-    console.log("Message reach 2");
-  
-    let recipientIds = [];
-    if (!isPublic) {
-      if (!recipients || recipients.length === 0) {
-        return res.status(400).json({ msg: 'Personal messages must include recipients.' });
-      }
-      
-      // Determine whether to query by email or by _id
-      let query;
-      // If the first recipient includes an '@', assume emails; otherwise, assume IDs.
-      if (typeof recipients[0] === 'string' && recipients[0].includes('@')) {
-        query = { email: { $in: recipients } };
-      } else {
-        query = { _id: { $in: recipients } };
-      }
-  
-      const users = await User.find(query);
-      if (!users || users.length === 0) {
-        return res.status(400).json({ msg: 'No matching recipients found.' });
-      }
-      recipientIds = users.map(user => user._id);
+    // Here we assume recipients is an array of emails.
+    const users = await User.find({ email: { $in: recipients } });
+    if (!users || users.length === 0) {
+      return res.status(400).json({ msg: 'No matching recipients found.' });
     }
-  
-    console.log("Message reach 3");
-  
-    try {
-      const newMessage = new Message({
-        subject,
-        body,
-        links: links ? (Array.isArray(links) ? links : [links]) : [],
-        sender: req.user.id,
-        isPublic,
-        recipients: isPublic ? [] : recipientIds
+    recipientIds = users.map(user => user._id);
+  }
+
+  try {
+    const newMessage = new Message({
+      subject,
+      body,
+      links: links ? (Array.isArray(links) ? links : [links]) : [],
+      sender: req.user.id,
+      isPublic,
+      recipients: isPublic ? [] : recipientIds
+    });
+    const savedMessage = await newMessage.save();
+
+    // If the message is personal, send email notifications to recipients.
+    if (!isPublic && recipientIds.length > 0) {
+      // Fetch the recipient users to get their emails.
+      const recipientUsers = await User.find({ _id: { $in: recipientIds } });
+      const recipientEmails = recipientUsers.map(user => user.email).join(', ');
+
+      const emailSubject = `New Personal Message from ${req.user.name}`;
+      const emailText = `You have received a new personal message.\n\nSubject: ${savedMessage.subject}\n\nPlease log in to view the message.`;
+
+      await sendEmail({
+        to: recipientEmails,
+        subject: emailSubject,
+        text: emailText,
       });
-      const savedMessage = await newMessage.save();
-      res.json(savedMessage);
-    } catch (err) {
-      console.error(err.message);
-      res.status(500).send('Server error');
+
+      console.log("Message sent succesfully to email");
     }
-  });
+
+    res.json(savedMessage);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server error');
+  }
+});
   
 
 // GET /api/messages/public - Get all public messages

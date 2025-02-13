@@ -1,23 +1,29 @@
-// server/routes/doubts.js
 const express = require('express');
 const router = express.Router();
 const Doubt = require('../models/Doubt');
-const Assignment = require('../models/Assignments'); // Adjust file name if needed
+const Assignment = require('../models/Assignments');
 const auth = require('../middleware/auth');
 const permit = require('../middleware/permit');
+const User = require('../models/User');
+const sendEmail = require('../utils/mailer');
 
-// POST /api/doubts
-// Create a new doubt (for students/volunteers)
+// POST /api/doubts - Create a new doubt (for students/volunteers)
 router.post('/', auth, permit('student', 'volunteer'), async (req, res) => {
   const { assignmentId, doubtText } = req.body;
   if (!assignmentId || !doubtText) {
     return res.status(400).json({ msg: 'Assignment ID and doubt text are required.' });
   }
   try {
+    // Create a new doubt with an initial conversation entry
     const newDoubt = new Doubt({
       assignment: assignmentId,
       student: req.user.id,
-      doubtText,
+      conversation: [{
+        sender: req.user.id,
+        message: doubtText,
+        type: 'doubt'
+      }],
+      currentStatus: 'new',
       resolved: false
     });
     const savedDoubt = await newDoubt.save();
@@ -28,16 +34,13 @@ router.post('/', auth, permit('student', 'volunteer'), async (req, res) => {
   }
 });
 
-// GET /api/doubts
-// For students/volunteers: returns only doubts they have raised.
-// For mentors/admins: returns all doubts (optionally filtered via query parameters).
+// GET /api/doubts - Get doubts (students/volunteers see only their own; mentors/admins see all)
 router.get('/', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (req, res) => {
   try {
     let filter = {};
     if (req.user.role === 'student' || req.user.role === 'volunteer') {
       filter.student = req.user.id;
     }
-    // Optional filtering by assignmentId or resolved status if provided.
     if (req.query.assignmentId) {
       filter.assignment = req.query.assignmentId;
     }
@@ -45,9 +48,11 @@ router.get('/', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (
       filter.resolved = req.query.resolved === 'true';
     }
     const doubts = await Doubt.find(filter)
-      .populate('student', 'name email')
-      .populate('resolvedBy', 'name email')
-      .populate('assignment', 'title difficulty assignmentTag');
+      .populate('student', 'name email branch')
+      .populate('resolvedBy', 'name email role')
+      .populate('assignment', 'title difficulty assignmentTag tags explanation')
+      .populate('conversation.sender', 'name role')
+      .sort({ createdAt: -1 });
     res.json(doubts);
   } catch (err) {
     console.error(err.message);
@@ -55,8 +60,7 @@ router.get('/', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (
   }
 });
 
-// GET /api/doubts/filter-doubts
-// Filter doubts by assignment details. For students/volunteers, restrict to their own doubts.
+// GET /api/doubts/filter-doubts - Filter doubts by assignment details
 router.get('/filter-doubts', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (req, res) => {
   try {
     let assignmentFilter = {};
@@ -69,7 +73,6 @@ router.get('/filter-doubts', auth, permit('student', 'volunteer', 'mentor', 'adm
     if (req.query.assignmentTitle) {
       assignmentFilter.title = { $regex: req.query.assignmentTitle, $options: "i" };
     }
-    // Query assignments matching these filters.
     const assignments = await Assignment.find(assignmentFilter, '_id');
     const assignmentIds = assignments.map(a => a._id);
     let doubtFilter = { assignment: { $in: assignmentIds } };
@@ -80,9 +83,10 @@ router.get('/filter-doubts', auth, permit('student', 'volunteer', 'mentor', 'adm
       doubtFilter.student = req.user.id;
     }
     const doubts = await Doubt.find(doubtFilter)
-      .populate('student', 'name email')
-      .populate('resolvedBy', 'name email')
-      .populate('assignment', 'title difficulty assignmentTag tags')
+      .populate('student', 'name email branch')
+      .populate('resolvedBy', 'name email role')
+      .populate('assignment', 'title difficulty assignmentTag tags explanation')
+      .populate('conversation.sender', 'name role')
       .sort({ createdAt: -1 });
     res.json(doubts);
   } catch (err) {
@@ -91,28 +95,27 @@ router.get('/filter-doubts', auth, permit('student', 'volunteer', 'mentor', 'adm
   }
 });
 
-// GET /api/doubts/:id
-// Get details for a single doubt. For students/volunteers, ensure they are the one who raised it.
+// GET /api/doubts/:id - Get details for a single doubt (with conversation sorted ascending)
 router.get('/:id', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (req, res) => {
   try {
-    const doubt = await Doubt.findById(req.params.id)
-      .populate('student', 'name email')
-      .populate('resolvedBy', 'name email')
-      .populate('assignment', 'title difficulty assignmentTag');
+    let doubt = await Doubt.findById(req.params.id)
+      .populate('student', 'name email branch')
+      .populate('resolvedBy', 'name email role')
+      .populate('assignment', 'title difficulty assignmentTag tags explanation')
+      .populate('conversation.sender', 'name role');
     if (!doubt) {
       return res.status(404).json({ msg: 'Doubt not found' });
     }
     if (req.user.role === 'student' || req.user.role === 'volunteer') {
-      let studentId = "";
-      if (typeof doubt.student === 'object' && doubt.student !== null && doubt.student._id) {
-        studentId = doubt.student._id.toString();
-      } else {
-        studentId = String(doubt.student);
-      }
+      const studentId = (typeof doubt.student === 'object' && doubt.student !== null && doubt.student._id)
+        ? String(doubt.student._id)
+        : String(doubt.student);
       if (studentId !== String(req.user.id)) {
         return res.status(403).json({ msg: 'Unauthorized to view this doubt' });
       }
     }
+    // Sort conversation in ascending order so that the initial doubt appears first.
+    doubt.conversation.sort((a, b) => a.timestamp - b.timestamp);
     res.json(doubt);
   } catch (err) {
     console.error(err.message);
@@ -120,8 +123,7 @@ router.get('/:id', auth, permit('student', 'volunteer', 'mentor', 'admin'), asyn
   }
 });
 
-// PUT /api/doubts/:id/reply
-// Mentor/Admin replies to a doubt and marks it as resolved.
+// PUT /api/doubts/:id/reply - Mentor/Admin replies to a doubt (updates status to "replied")
 router.put('/:id/reply', auth, permit('mentor', 'admin'), async (req, res) => {
   const { reply } = req.body;
   if (!reply || reply.trim() === '') {
@@ -132,7 +134,112 @@ router.put('/:id/reply', auth, permit('mentor', 'admin'), async (req, res) => {
     if (!doubt) {
       return res.status(404).json({ msg: 'Doubt not found' });
     }
-    doubt.reply = reply;
+    // Save the original doubt text from the first conversation entry
+    const originalDoubtText = doubt.conversation.length > 0 ? doubt.conversation[0].message : '';
+
+    // Append mentor's reply to the conversation thread
+    doubt.conversation.push({
+      sender: req.user.id,
+      message: reply,
+      type: 'reply'
+    });
+    // Update currentStatus to "replied"
+    doubt.currentStatus = 'replied';
+    doubt = await doubt.save();
+
+    // Send email notification to the student
+    const studentUser = await User.findById(doubt.student);
+    if (studentUser && studentUser.email) {
+      const emailSubject = `Your doubt has been replied by ${req.user.name}`;
+      const emailHtml = `
+        <html>
+          <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <h2 style="color: #4CAF50;">Hello ${studentUser.name},</h2>
+            <p>Your doubt regarding the assignment <strong>${doubt.assignment.title}</strong> has received a reply from <strong>${req.user.name}</strong>.</p>
+            <h3 style="border-bottom: 1px solid #eee; padding-bottom: 5px;">Your Doubt</h3>
+            <p style="margin-left: 10px;">${originalDoubtText}</p>
+            <h3 style="border-bottom: 1px solid #eee; padding-bottom: 5px;">Mentor's Reply</h3>
+            <p style="margin-left: 10px;">${reply}</p>
+            <p>Regards,<br/><strong>Coding Journey Team</strong></p>
+          </body>
+        </html>
+      `;
+      const emailText = `
+Hello ${studentUser.name},
+
+Your doubt regarding the assignment ${doubt.assignment.title} has received a reply from ${req.user.name}.
+
+Your Doubt:
+${originalDoubtText}
+
+Mentor's Reply:
+${reply}
+
+Regards,
+Coding Journey Team
+      `;
+      await sendEmail({
+        to: studentUser.email,
+        subject: emailSubject,
+        text: emailText,
+        html: emailHtml,
+      });
+    }
+    res.json(doubt);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server error');
+  }
+});
+
+// PUT /api/doubts/:id/followup - Student asks a follow-up ("Ask Again")
+router.put('/:id/followup', auth, permit('student', 'volunteer'), async (req, res) => {
+  const { followup } = req.body;
+  if (!followup || followup.trim() === '') {
+    return res.status(400).json({ msg: 'Follow-up message is required.' });
+  }
+  try {
+    let doubt = await Doubt.findById(req.params.id);
+    if (!doubt) {
+      return res.status(404).json({ msg: 'Doubt not found' });
+    }
+    if (String(doubt.student) !== String(req.user.id)) {
+      return res.status(403).json({ msg: 'Unauthorized' });
+    }
+    // Append follow-up message to the conversation thread
+    doubt.conversation.push({
+      sender: req.user.id,
+      message: followup,
+      type: 'follow-up'
+    });
+    // Update currentStatus to "unsatisfied" (indicating need for review)
+    doubt.currentStatus = 'unsatisfied';
+    doubt = await doubt.save();
+    res.json(doubt);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server error');
+  }
+});
+
+// PUT /api/doubts/:id/resolve - Student marks the doubt as resolved
+router.put('/:id/resolve', auth, permit('student'), async (req, res) => {
+  try {
+    let doubt = await Doubt.findById(req.params.id);
+    if (!doubt) {
+      return res.status(404).json({ msg: 'Doubt not found' });
+    }
+    if (String(doubt.student) !== String(req.user.id)) {
+      return res.status(403).json({ msg: 'Unauthorized' });
+    }
+    // Append a "resolve" entry
+    doubt.conversation.push({
+      sender: req.user.id,
+      message: 'Resolved',
+      type: 'resolve'
+    });
+    // Update currentStatus to "resolved" and mark as resolved
+    doubt.currentStatus = 'resolved';
     doubt.resolved = true;
     doubt.resolvedAt = new Date();
     doubt.resolvedBy = req.user.id;

@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 require('dotenv').config();
 
-// server/server.js (snippet)
 
 
 
@@ -75,4 +74,4 @@ app.listen(PORT, () => {
 }); 
 
 
-export {app}
+module.exports = {app};

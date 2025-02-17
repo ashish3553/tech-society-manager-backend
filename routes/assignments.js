@@ -110,7 +110,7 @@ router.post('/', auth, permit('mentor', 'admin'), upload.any(), async (req, res)
 });
 
 // GET /api/assignments/home
-router.get('/home', auth, async (req, res) => {
+router.get('/home', async (req, res) => {
   try {
     const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
     const assignments = await Assignment.find({

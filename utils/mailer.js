@@ -37,7 +37,7 @@ const sendEmail = async ({ to, subject, text, html, from }) => {
         {
           From: {
             Email: from || process.env.DEFAULT_FROM_EMAIL,
-            Name: "Bit2Byte" // Change this as needed
+            Name: "CodeIndia" // Change this as needed
           },
           To: recipients,
           Subject: subject,

@@ -20,13 +20,15 @@ app.use(express.urlencoded({ extended: false }));
 
 console.log("hii");
 // Connect to MongoDB
-mongoose
-  .connect(process.env.MONGO_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log('MongoDB Connected'))
-  .catch((err) => console.error('MongoDB Connection Error:', err));
+const connectDB = async()=>{
+    try {
+        await mongoose.connect(process.env.MONGO_URI)
+        console.log('MongoDB database is connected') 
+    } catch (err) {
+        console. log('MongoDB database is connection failed', err)
+    }
+}
+await connectDB();
 
 // Define a test route
 app.get('/', (req, res) => {

@@ -43,9 +43,9 @@ router.get('/current', auth, async (req, res) => {
 });
 
 // GET /api/dailyBriefing/archive - Get previous briefings (older than 24 hours)
-// Optionally filter by month using a query parameter "month" in format "YYYY-MM"
 router.get('/archive', auth, async (req, res) => {
   try {
+    console.log("Here for briefing");
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     let filter = { createdAt: { $lt: twentyFourHoursAgo } };
@@ -58,13 +58,17 @@ router.get('/archive', auth, async (req, res) => {
       filter.createdAt = { $gte: start, $lt: end };
     }
 
-    const briefings = await DailyBriefing.find(filter).sort({ createdAt: -1 });
+    const briefings = await DailyBriefing.find(filter)
+      .populate('createdBy', 'name role')  // Populate createdBy with name and role.
+      .sort({ createdAt: -1 });
+      
     res.json(briefings);
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
   }
 });
+
 
 // PUT /api/dailyBriefing/:id - Update an existing daily briefing
 // Allowed for volunteer, mentor, and admin
@@ -84,7 +88,7 @@ router.put('/:id', auth, permit('volunteer', 'mentor', 'admin'), async (req, res
     res.json(updatedBriefing);
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Server error');
+    res.status(500).send('Server error'); 
   }
 });
 
@@ -106,18 +110,19 @@ router.get('/recent', async (req, res) => {
 
 // DELETE /api/dailyBriefing/:id - Delete an existing daily briefing
 // Allowed for admin only
-router.delete('/:id', auth, permit('admin'), async (req, res) => {
+router.delete('/:id', auth, permit('admin','mentor'), async (req, res) => {
   try {
     const briefing = await DailyBriefing.findById(req.params.id);
     if (!briefing) {
       return res.status(404).json({ msg: 'Briefing not found' });
     }
-    await briefing.remove();
+    await briefing.deleteOne(); // Instead of briefing.remove()
     res.json({ msg: 'Briefing deleted successfully' });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
   }
 });
+
 
 module.exports = router;

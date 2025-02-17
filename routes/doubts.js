@@ -61,8 +61,10 @@ router.get('/', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (
 });
 
 // GET /api/doubts/filter-doubts - Filter doubts by assignment details
+// GET /api/doubts/filter-doubts - Filter doubts by assignment details
 router.get('/filter-doubts', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (req, res) => {
   try {
+    // Build assignment-related filter if any assignment filter parameters are provided.
     let assignmentFilter = {};
     if (req.query.assignmentTag) {
       assignmentFilter.assignmentTag = req.query.assignmentTag;
@@ -73,27 +75,73 @@ router.get('/filter-doubts', auth, permit('student', 'volunteer', 'mentor', 'adm
     if (req.query.assignmentTitle) {
       assignmentFilter.title = { $regex: req.query.assignmentTitle, $options: "i" };
     }
-    const assignments = await Assignment.find(assignmentFilter, '_id');
-    const assignmentIds = assignments.map(a => a._id);
-    let doubtFilter = { assignment: { $in: assignmentIds } };
+    let doubtFilter = {};
+    // Only add assignment condition if any assignment filters were provided.
+    if (Object.keys(assignmentFilter).length > 0) {
+      const assignments = await Assignment.find(assignmentFilter, '_id');
+      const assignmentIds = assignments.map(a => a._id);
+      if (assignmentIds.length === 0) {
+        return res.json({ total: 0, page: 1, limit: 10, doubts: [] });
+      }
+      doubtFilter.assignment = { $in: assignmentIds };
+    }
+    
+    // Filter by resolved flag (if provided)
     if (req.query.resolved) {
       doubtFilter.resolved = req.query.resolved === 'true';
     }
+    // Filter by current status (new, replied, unsatisfied, review, resolved)
+    if (req.query.status) {
+      // Use case-insensitive regex match for currentStatus
+      doubtFilter.currentStatus = { $regex: new RegExp(`^${req.query.status}$`, "i") };
+    }
+    // Timeframe filtering (today or yesterday)
+    if (req.query.timeframe) {
+      const now = new Date();
+      let start, end;
+      if (req.query.timeframe === 'today') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      } else if (req.query.timeframe === 'yesterday') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      }
+      doubtFilter.createdAt = { $gte: start, $lt: end };
+    }
+    
+    // For students/volunteers, restrict doubts to those they raised.
     if (req.user.role === 'student' || req.user.role === 'volunteer') {
       doubtFilter.student = req.user.id;
     }
+    
+    // Pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    
     const doubts = await Doubt.find(doubtFilter)
       .populate('student', 'name email branch')
       .populate('resolvedBy', 'name email role')
       .populate('assignment', 'title difficulty assignmentTag tags explanation')
       .populate('conversation.sender', 'name role')
-      .sort({ createdAt: -1 });
-    res.json(doubts);
+      .sort({ updatedAt: -1 })  // Changed to sort by recent update
+      .skip(skip)
+      .limit(limit);
+    
+    const totalCount = await Doubt.countDocuments(doubtFilter);
+    
+    res.json({
+      total: totalCount,
+      page,
+      limit,
+      doubts
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
   }
 });
+
 
 // GET /api/doubts/:id - Get details for a single doubt (with conversation sorted ascending)
 router.get('/:id', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (req, res) => {

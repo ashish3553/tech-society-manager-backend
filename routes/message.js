@@ -7,8 +7,13 @@ const User = require('../models/User');
 const sendEmail = require('../utils/mailer'); // Import the Mailjet mailer
 
 
+
+
+
+
+
 // POST /api/messages - Create a new message
-router.post('/', auth, permit('student','volunteer','mentor', 'admin'), async (req, res) => {
+router.post('/', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (req, res) => {
   const { subject, body, isPublic, recipients, links } = req.body;
 
   if (!subject || !body) {
@@ -20,8 +25,8 @@ router.post('/', auth, permit('student','volunteer','mentor', 'admin'), async (r
     if (!recipients || recipients.length === 0) {
       return res.status(400).json({ msg: 'Personal messages must include recipients.' });
     }
-    // Here we assume recipients is an array of emails.
-    const users = await User.find({ email: { $in: recipients } });
+    // Now assuming recipients is an array of ObjectIds.
+    const users = await User.find({ _id: { $in: recipients } });
     if (!users || users.length === 0) {
       return res.status(400).json({ msg: 'No matching recipients found.' });
     }
@@ -35,16 +40,15 @@ router.post('/', auth, permit('student','volunteer','mentor', 'admin'), async (r
       links: links ? (Array.isArray(links) ? links : [links]) : [],
       sender: req.user.id,
       isPublic,
+      // For public messages, leave recipients empty (they’ll be rendered as “Global”)
       recipients: isPublic ? [] : recipientIds
     });
     const savedMessage = await newMessage.save();
 
-    // If the message is personal, send email notifications to recipients.
-    if (!isPublic && recipientIds.length > 0) {
-      // Fetch the recipient users to get their emails.
+    // If a mentor or admin sends a personal message, send email notifications.
+    if (!isPublic && recipientIds.length > 0 && (req.user.role === 'mentor' || req.user.role === 'admin')) {
       const recipientUsers = await User.find({ _id: { $in: recipientIds } });
       const recipientEmails = recipientUsers.map(user => user.email).join(', ');
-
       const emailSubject = `New Personal Message from ${req.user.name}`;
       const emailText = `You have received a new personal message.\n\nSubject: ${savedMessage.subject}\n\nPlease log in to view the message.`;
 
@@ -53,8 +57,7 @@ router.post('/', auth, permit('student','volunteer','mentor', 'admin'), async (r
         subject: emailSubject,
         text: emailText,
       });
-
-      console.log("Message sent succesfully to email");
+      console.log("Personal message email sent successfully.");
     }
 
     res.json(savedMessage);
@@ -174,6 +177,7 @@ router.get('/recent-mentor', async (req, res) => {
 
   router.get('/allForStudent', auth, async (req, res) => {
     try {
+      console.log("allForStudent is being fetched");
       const messages = await Message.find({
         $or: [
           { sender: req.user.id },
@@ -183,6 +187,7 @@ router.get('/recent-mentor', async (req, res) => {
         .populate('sender', 'name email role')
         .populate('recipients', 'name email role') // Ensure recipients are populated
         .sort({ createdAt: -1 });
+        console.log("Here is all:",messages);
       res.json(messages);
     } catch (err) {
       console.error(err.message);
@@ -190,26 +195,26 @@ router.get('/recent-mentor', async (req, res) => {
     }
   });
 
-
-  // GET /api/messages/allForStudent - Retrieve all messages for a student (both sent and received)
-router.get('/allForStudent', auth, async (req, res) => {
-    try {
-      // Find messages where the current user is either the sender or is listed in recipients.
-      const messages = await Message.find({
-        $or: [
-          { sender: req.user.id },
-          { recipients: req.user.id }
-        ]
-      })
-        .populate('sender', 'name email role')  // Populate sender details (adjust fields as needed)
-        .sort({ createdAt: -1 });               // Sort by creation date, most recent first
   
-      res.json(messages);
-    } catch (err) {
-      console.error(err.message);
-      res.status(500).send('Server error');
-    }
-  });
+// GET /api/messages/allForMentor - For mentors/admins: Retrieve all personal messages sent or received by them.
+router.get('/allForMentor', auth, permit('mentor', 'admin'), async (req, res) => {
+  try {
+    const messages = await Message.find({
+      isPublic: false, // Only personal messages
+      $or: [
+        { sender: req.user.id },
+        { recipients: req.user.id }
+      ]
+    })
+      .populate('sender', 'name email role')
+      .populate('recipients', 'name email role')
+      .sort({ createdAt: -1 });
+    res.json(messages);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server error');
+  }
+});
   
 
 // DELETE /api/messages/:id - Delete an existing message (allowed for admin only)
@@ -221,6 +226,22 @@ router.delete('/:id', auth, permit('admin'), async (req, res) => {
     }
     await message.remove();
     res.json({ msg: 'Message deleted successfully' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server error');
+  }
+});
+
+// GET /api/messages/:id - Get message details by ID
+router.get('/:id', auth, async (req, res) => {
+  try {
+    const message = await Message.findById(req.params.id)
+      .populate('sender', 'name email role')
+      .populate('recipients', 'name email role');
+    if (!message) {
+      return res.status(404).json({ msg: 'Message not found' });
+    }
+    res.json(message);
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');

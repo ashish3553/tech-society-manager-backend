@@ -1,22 +1,62 @@
 const mongoose = require('mongoose');
 
+const TestCaseSchema = new mongoose.Schema({
+  input: { type: String, required: true },
+  output: { type: String, required: true },
+  explanation: { type: String }
+});
+
+const SimilarQuestionSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  url: { type: String, required: true }
+});
+
+// Update the assignedTo array to include assignedBy.
+const PersonalAssignmentSchema = new mongoose.Schema({
+  name: { type: String, required: true },    // Recipient's name
+  email: { type: String, required: true },   // Recipient's email
+  assignedBy: {                              // Mentor who assigned this personally
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  }
+});
+
 const AssignmentSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  explanation: { type: String },          // Detailed blog-style content
-  testCases: [{ type: String }],            // Array of test case descriptions
-  solution: { type: String },               // Optional solution text
-  files: [{ type: String }],                // URLs for attachments (images, PDFs)
-  codingPlatformLink: { type: String },     // Optional link if the question is hosted externally
+  explanation: { type: String }, // Rich content for the question/project
+  testCases: [TestCaseSchema],
+  codingPlatformLink: { type: String },
   difficulty: { type: String, enum: ['easy', 'medium', 'hard'], default: 'easy' },
-  tags: [String],                         // e.g., "array", "function", "loop", etc.
-  // category distinguishes whether the assignment is public or personal
-  category: { type: String, enum: ['public', 'personal'], default: 'public' },
-  // assignmentTag indicates the question type: HW, CW, or practice
-  assignmentTag: { type: String, enum: ['HW', 'CW', 'practice'], default: 'practice' },
-  assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  // New field: whether the solution is visible to everyone.
-  solutionVisible: { type: Boolean, default: true },
+  tags: [String],
+  repoCategory: { type: String, enum: ['question', 'project'], required: true },
+  questionType: { type: String, enum: ['coding', 'conceptual'], default: 'coding' },
+  majorTopic: {
+    type: String,
+    enum: [
+      "Basics & Syntax",
+      "Data Types & Variables",
+      "Operators",
+      "Control Structures",
+      "Functions",
+      "Pointers & Memory Management",
+      "Arrays",
+      "String",
+      "Object-Oriented Programming (OOP)",
+      "Templates & Generic Programming",
+      "STL",
+      "Exception Handling",
+      "File I/O",
+      "Advanced Topics"
+    ],
+    required: true
+  },
+  similarQuestions: [SimilarQuestionSchema],
+  distributionTag: { type: String, default: 'central' },
+  // Instead of a simple array of objects, use PersonalAssignmentSchema for personal assignments.
+  assignedTo: [PersonalAssignmentSchema],
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  lastModifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   responses: [
     {
       student: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

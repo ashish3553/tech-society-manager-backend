@@ -44,15 +44,22 @@ const dashboardRoutes = require('./routes/dashboard');   // Dashboard endpoints 
 const userRoutes = require('./routes/users');           // Admin functions (add/remove student, etc.)
 const dailyBriefingRoutes = require('./routes/dailyBriefing');
 const messageRoutes = require('./routes/message');
+const uploadRoute = require('./routes/upload');
+const solutionRoutes = require('./routes/solution');
 
 
 
 
 
+
+
+console.log("Post yha aa gyi");
 
 // Use the routes with appropriate base paths
 app.use('/api/auth', authRoutes);
+app.use('/api/solutions', solutionRoutes);
 app.use('/api/assignments', AssignmentRoutes);
+
 app.use('/api/doubts', doubtRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/users', userRoutes);
@@ -60,6 +67,7 @@ app.use('/api/dailyBriefing', dailyBriefingRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/contact', contactRoutes);
+app.use('/api/upload', uploadRoute);
 
 
 app.listen(PORT, () => {

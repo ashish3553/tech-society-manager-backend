@@ -74,10 +74,11 @@ app.use('/api/upload', uploadRoute);
 const isDevelopment = 'production' !== 'production';
 if (isDevelopment) {
     app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
+        connectDB();
+        console.log(`Server is running on port ${PORT}`);
     }); 
 } else { 
-    await connectDB();
+    connectDB();
 }
 
 

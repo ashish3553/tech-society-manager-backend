@@ -28,7 +28,6 @@ const connectDB = async()=>{
         console. log('MongoDB database is connection failed', err)
     }
 }
-await connectDB();
 
 // Define a test route
 app.get('/', (req, res) => {
@@ -71,9 +70,15 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/upload', uploadRoute);
 
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-}); 
+
+const isDevelopment = 'production' !== 'production';
+if (isDevelopment) {
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    }); 
+} else { 
+    await connectDB();
+}
 
 
 module.exports = app;

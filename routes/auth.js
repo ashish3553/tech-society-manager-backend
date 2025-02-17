@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const User = require('../models/user');
+const User = require('../models/User');
 const sendEmail = require('../utils/mailer'); // Import the Mailjet mailer
 // const crypto = require('crypto'); // for generating OTP    ---->   Random funstion has been used 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();

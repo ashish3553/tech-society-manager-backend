@@ -35,10 +35,11 @@ const upload = multer({ storage });
 // Fields expected: name, email, password, branch, year, and optionally a file field named "profileImage"
 // server/routes/auth.js
 
-router.post('/register',  async (req, res) => {
+router.post('/register', upload.single('profileImage'), async (req, res) => {
   const { name, email, password, branch, year } = req.body;
+  // console.log("Here is new user details:",req.body);
   
-  try {
+  try { 
     console.log("Registration request received");
     // Check if user already exists
     let user = await User.findOne({ email });
@@ -48,15 +49,16 @@ router.post('/register',  async (req, res) => {
 
     console.log("Hiiiiii");  
     
-    let profileImageUrl = '';
-    if (req.file) {
-      // ... (Cloudinary upload code remains unchanged) ...
-    } else {
-      console.log("No file uploaded; using default profile image.");
-      profileImageUrl = process.env.DEFAULT_PROFILE_IMAGE || 'https://res.cloudinary.com/your_cloud_name/image/upload/v0000000000/default_profile.png';
-    }
+    let profileImageUrl = process.env.DEFAULT_PROFILE_IMAGE
+    // if (req.file) {
+    //   // ... (Cloudinary upload code remains unchanged) ...
+    // } else {
+    //   console.log("No file uploaded; using default profile image.");
+    //   profileImageUrl = process.env.DEFAULT_PROFILE_IMAGE || 'https://res.cloudinary.com/your_cloud_name/image/upload/v0000000000/default_profile.png';
+    // }
   
     // Create new user with default role "student" and isVerified false.
+
     user = new User({
       name,
       email,

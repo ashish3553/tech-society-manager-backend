@@ -35,65 +35,61 @@ const upload = multer({ storage });
 // Fields expected: name, email, password, branch, year, and optionally a file field named "profileImage"
 // server/routes/auth.js
 
+// New Registration Route (delayed saving until OTP verification)
 router.post('/register', upload.single('profileImage'), async (req, res) => {
   const { name, email, password, branch, year } = req.body;
-  // console.log("Here is new user details:",req.body);
-  
-  try { 
-    console.log("Registration request received");
-    // Check if user already exists
-    let user = await User.findOne({ email });
-    if (user) {
+  console.log("Registration request received with:", req.body);
+
+  try {
+    // Check if a user with this email already exists
+    let existingUser = await User.findOne({ email });
+    if (existingUser) {
       return res.status(400).json({ msg: 'User already exists' });
     }
 
-    console.log("Hiiiiii");  
-    
-    let profileImageUrl = process.env.DEFAULT_PROFILE_IMAGE
-    // if (req.file) {
-    //   // ... (Cloudinary upload code remains unchanged) ...
-    // } else {
-    //   console.log("No file uploaded; using default profile image.");
-    //   profileImageUrl = process.env.DEFAULT_PROFILE_IMAGE || 'https://res.cloudinary.com/your_cloud_name/image/upload/v0000000000/default_profile.png';
-    // }
-  
-    // Create new user with default role "student" and isVerified false.
+    // Set default profile image (and optionally use Cloudinary upload if file provided)
+    let profileImageUrl = process.env.DEFAULT_PROFILE_IMAGE;
+    // Example: if (req.file) { /* Upload to Cloudinary and set profileImageUrl accordingly */ }
 
-    user = new User({
+    // Hash the password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Generate OTP and expiry timestamp (15 minutes from now)
+    const otp = generateOTP();
+    const otpExpires = Date.now() + 15 * 60 * 1000; // 15 minutes in milliseconds
+
+    // Prepare a payload with registration details
+    const payload = {
       name,
       email,
-      password,
+      password: hashedPassword, // store the hashed password
       branch,
       year,
       profileImage: profileImageUrl,
-      role: 'student',
-      isVerified: false
-    });
-  
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(password, salt);
-  
-    // Generate a 6-digit OTP (as string) and set expiry to 15 minutes later
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    user.verificationOTP = otp;
-    user.otpExpires = new Date(Date.now() + 15 * 60 * 1000);
-  
-    await user.save();
+      role: 'student',  // default role
+      otp,              // OTP for verification
+      otpExpires,       // OTP expiration time
+    };
 
-    // Send OTP email using your sendEmail function.
+    // Sign a JWT with the payload (expires in 15 minutes)
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+
+    // Send the OTP email to the user
     const emailSubject = 'Your Email Verification Code';
     const emailText = `Your verification code is: ${otp}\nThis code will expire in 15 minutes.`;
     await sendEmail({
-      to: user.email,
+      to: email,
       subject: emailSubject,
       text: emailText,
     });
-    console.log("OTP sent to:", user.email);
-  
-    // Instead of logging the user in immediately, respond with a message.
-    // Optionally, you can also store the email in localStorage on the frontend.
-    res.json({ msg: 'Registration successful! Please check your email for the verification code.' });
+    console.log("OTP sent to:", email);
+
+    // Respond with a success message and the token containing registration data
+    res.json({ 
+      msg: 'Registration successful! Please check your email for the verification code.',
+      token  // Client should store this token for OTP verification
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
@@ -236,49 +232,58 @@ router.post('/reset-password', async (req, res) => {
 
 
   // server/routes/auth.js
+// server/routes/auth.js
+
 router.post('/verify-otp', async (req, res) => {
-  const { email, otp } = req.body;
-  if (!email || !otp) {
-    return res.status(400).json({ msg: 'Email and OTP are required.' });
+  const { token, otp } = req.body; // Expect the token from registration and the OTP entered by the user
+  if (!token || !otp) {
+    return res.status(400).json({ msg: 'Token and OTP are required.' });
   }
   try {
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ msg: 'Invalid email or OTP.' });
-    }
-    // Check if OTP matches and is not expired.
-    if (user.verificationOTP !== otp) {
+    // Verify and decode the token
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Check if the OTP matches and has not expired
+    if (payload.otp !== otp) {
       return res.status(400).json({ msg: 'Invalid OTP.' });
     }
-    if (user.otpExpires < Date.now()) {
-      return res.status(400).json({ msg: 'OTP has expired. Please request a new one.' });
+    if (payload.otpExpires < Date.now()) {
+      return res.status(400).json({ msg: 'OTP has expired. Please register again.' });
     }
-    
-    // Mark user as verified and clear OTP fields.
-    user.isVerified = true;
-    user.verificationOTP = undefined;
-    user.otpExpires = undefined;
-    await user.save();
 
-    // Optionally, sign a JWT here if you wish to log them in immediately.
-    const payload = { user: { id: user._id, role: user.role } };
+    // Create a new user using the payload data (OTP verified)
+    const newUser = new User({
+      name: payload.name,
+      email: payload.email,
+      password: payload.password, // already hashed
+      branch: payload.branch,
+      year: payload.year,
+      profileImage: payload.profileImage,
+      role: payload.role,
+      isVerified: true, // Mark as verified now
+    });
+
+    await newUser.save();
+
+    // Optionally, you can sign a JWT for the newly registered user to log them in immediately
+    const loginPayload = { user: { id: newUser._id, role: newUser.role } };
     jwt.sign(
-      payload,
+      loginPayload,
       process.env.JWT_SECRET,
       { expiresIn: 36000 },
-      (err, token) => {
+      (err, loginToken) => {
         if (err) throw err;
         res.json({
-          msg: 'Email verified successfully!',
-          token,
+          msg: 'Email verified successfully! Your account has been created.',
+          token: loginToken,
           user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            branch: user.branch,
-            year: user.year,
-            role: user.role,
-            profileImage: user.profileImage
+            id: newUser._id,
+            name: newUser.name,
+            email: newUser.email,
+            branch: newUser.branch,
+            year: newUser.year,
+            role: newUser.role,
+            profileImage: newUser.profileImage
           }
         });
       }
@@ -288,6 +293,7 @@ router.post('/verify-otp', async (req, res) => {
     res.status(500).json({ msg: 'Server error' });
   }
 });
+
 
 
   

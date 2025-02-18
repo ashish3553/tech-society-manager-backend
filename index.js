@@ -72,7 +72,7 @@ app.use('/api/upload', uploadRoute);
 
 
 const isDevelopment = 'production' !== 'production';
-if (1) {
+if (isDevelopment) {
     app.listen(PORT, () => {
         connectDB();
         console.log(`Server is running on port ${PORT}`);
@@ -84,4 +84,4 @@ if (1) {
 
 // push krne se pahle production !== production and module.export krna hai
 
-// module.exports = app;
+module.exports = app;

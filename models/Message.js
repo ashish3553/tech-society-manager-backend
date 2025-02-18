@@ -10,6 +10,8 @@ const MessageSchema = new mongoose.Schema({
   // For personal messages, recipients are specified; for public messages, this can be empty.
   recipients: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   isPublic: { type: Boolean, default: false },
+  isAnnouncement: { type: Boolean, default: false }, 
+
   createdAt: { type: Date, default: Date.now }
 });
 

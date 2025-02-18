@@ -11,6 +11,39 @@ const sendEmail = require('../utils/mailer'); // Import the Mailjet mailer
 
 
 
+// POST /messages/announcement
+router.post('/announcement',auth,permit('admin','mentor'), async (req, res) => {
+  try {
+    const { subject, body, links } = req.body;
+    const announcement = new Message({
+      subject,
+      body,
+      links,
+      sender: req.user.id,
+      isPublic: true,
+      isAnnouncement: true
+    });
+    await announcement.save();
+    res.status(201).json(announcement);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create announcement.' });
+  }
+});
+
+// GET /messages/announcement
+// Returns at most the 2 most recent announcements
+router.get('/announcement', async (req, res) => {
+  try {
+    const announcements = await Message.find({ isAnnouncement: true })
+      .sort({ createdAt: -1 })
+      .limit(3);
+    res.json(announcements);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load announcements.' });
+  }
+});
 
 // POST /api/messages - Create a new message
 router.post('/', auth, permit('student', 'volunteer', 'mentor', 'admin'), async (req, res) => {
@@ -116,6 +149,55 @@ router.get('/all', auth, permit('mentor', 'admin'), async (req, res) => {
   } catch (err) {
     console.error(err.message);
     res.status(500).send('Server error');
+  }
+});
+
+// Update an announcement
+router.put('/announcement/:id', auth,permit('admin','mentor'), async (req, res) => {
+  try {
+    console.log("Ann me aaya hau",req.body);
+    const announcement = await Message.findById(req.params.id);
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement not found.' });
+    }
+
+    // Optionally: check if req.user.role is 'mentor' or 'admin'
+    if (req.user.role !== 'mentor' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Not authorized.' });
+    }
+
+    // Update fields (you may also allow updating links if needed)
+    announcement.subject = req.body.subject || announcement.subject;
+    announcement.body = req.body.body || announcement.body;
+    if (req.body.links) announcement.links = req.body.links;
+    
+    await announcement.save();
+    res.json(announcement);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update announcement.' });
+  }
+});
+
+// Delete an announcement
+router.delete('/announcement/:id',auth,permit('admin','mentor'), async (req, res) => {
+  try {
+    console.log("Came here ");
+    const announcement = await Message.findById(req.params.id);
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement not found.' });
+    }
+
+    // Optionally: check if req.user.role is 'mentor' or 'admin'
+    if (req.user.role !== 'mentor' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Not authorized.' });
+    }
+
+    await announcement.deleteOne();
+    res.json({ message: 'Announcement deleted successfully.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete announcement.' });
   }
 });
 

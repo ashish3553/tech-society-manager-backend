@@ -35,7 +35,7 @@ const upload = multer({ storage });
 // Fields expected: name, email, password, branch, year, and optionally a file field named "profileImage"
 // server/routes/auth.js
 
-router.post('/register', upload.single('profileImage'), async (req, res) => {
+router.post('/register',  async (req, res) => {
   const { name, email, password, branch, year } = req.body;
   
   try {
@@ -45,7 +45,9 @@ router.post('/register', upload.single('profileImage'), async (req, res) => {
     if (user) {
       return res.status(400).json({ msg: 'User already exists' });
     }
-  
+
+    console.log("Hiiiiii");  
+    
     let profileImageUrl = '';
     if (req.file) {
       // ... (Cloudinary upload code remains unchanged) ...
@@ -287,5 +289,5 @@ router.post('/verify-otp', async (req, res) => {
 
 
   
-
+ 
 module.exports = router;

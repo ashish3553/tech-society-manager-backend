@@ -88,23 +88,41 @@ router.put('/:id', auth, permit('volunteer', 'mentor', 'admin'), async (req, res
     res.json(updatedBriefing);
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Server error'); 
+    res.status(500).send('Server error');  
   }
 });
 
+// Assuming you have imported your User model:
+const User = require('../models/User');
 
-// GET /api/dailyBriefing/recent - Get two recent class briefings (public route)
 router.get('/recent', async (req, res) => {
-    try {
-      const briefings = await DailyBriefing.find()
-        .sort({ createdAt: -1 })
-        .limit(2);
-      res.json(briefings);
-    } catch (err) {
-      console.error(err.message);
-      res.status(500).send('Server error');
-    }
-  });
+  try {
+    // Fetch two most recent briefings
+    const briefings = await DailyBriefing.find()
+      .sort({ createdAt: -1 })
+      .limit(2);
+
+    // For each briefing, fetch the user details using the createdBy field (which stores the userId)
+    const briefingsWithUser = await Promise.all(
+      briefings.map(async (briefing) => {
+        // Find the user by the ID stored in briefing.createdBy
+        const user = await User.findById(briefing.createdBy, 'name role');
+        // Convert briefing to a plain object and add the user details under createdBy
+        return {
+          ...briefing.toObject(),
+          createdBy: user // now includes username and role
+        };
+      })
+    );
+    // console.log(briefingsWithUser);
+
+    res.json(briefingsWithUser);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server error');
+  }
+});
+
 
   
 

@@ -814,9 +814,9 @@ router.put('/:id/status', auth, permit('student', 'volunteer'), async (req, res)
   
   // Validate based on responseStatus
   if (responseStatus === "solved") {
-    if (!submissionUrl || submissionUrl.trim() === "") {
-      return res.status(400).json({ msg: "For 'solved' status, a submissionUrl is required as proof." });
-    }
+    // if (!submissionUrl || submissionUrl.trim() === "") {
+    //   return res.status(400).json({ msg: "For 'solved' status, a submissionUrl is required as proof." });
+    // }
   } else {
     if (!learningNotes || learningNotes.trim() === "") {
       return res.status(400).json({ msg: "For statuses other than 'solved', please provide a problem description in learningNotes." });

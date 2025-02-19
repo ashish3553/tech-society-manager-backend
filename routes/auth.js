@@ -115,7 +115,7 @@ router.post('/login', async (req, res) => {
       jwt.sign(
         payload,
         process.env.JWT_SECRET,
-        { expiresIn: 36000 },
+        { expiresIn: 1296000 },
         (err, token) => {
           if (err) throw err;
           // Return token along with user details (excluding password)
@@ -270,7 +270,7 @@ router.post('/verify-otp', async (req, res) => {
     jwt.sign(
       loginPayload,
       process.env.JWT_SECRET,
-      { expiresIn: 36000 },
+      { expiresIn: 1296000 },
       (err, loginToken) => {
         if (err) throw err;
         res.json({

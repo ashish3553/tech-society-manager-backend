@@ -1,3 +1,4 @@
+// In your Assignment model file (e.g. models/Assignment.js)
 const mongoose = require('mongoose');
 
 const TestCaseSchema = new mongoose.Schema({
@@ -11,20 +12,30 @@ const SimilarQuestionSchema = new mongoose.Schema({
   url: { type: String, required: true }
 });
 
-// Update the assignedTo array to include assignedBy.
 const PersonalAssignmentSchema = new mongoose.Schema({
-  name: { type: String, required: true },    // Recipient's name
-  email: { type: String, required: true },   // Recipient's email
-  assignedBy: {                              // Mentor who assigned this personally
+  name: { type: String, required: true },
+  email: { type: String, required: true },
+  assignedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   }
 });
 
+// New mentorReview subdocument schema
+const MentorReviewSchema = new mongoose.Schema({
+  status: {
+    type: String,
+    enum: ['approved', 'not approved', 'pending'],
+    default: 'pending'
+  },
+  comment: { type: String, default: '' },
+  reviewedAt: { type: Date }
+});
+
 const AssignmentSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  explanation: { type: String }, // Rich content for the question/project
+  explanation: { type: String },
   testCases: [TestCaseSchema],
   codingPlatformLink: { type: String },
   difficulty: { type: String, enum: ['easy', 'medium', 'hard'], default: 'easy' },
@@ -53,7 +64,6 @@ const AssignmentSchema = new mongoose.Schema({
   },
   similarQuestions: [SimilarQuestionSchema],
   distributionTag: { type: String, default: 'central' },
-  // Instead of a simple array of objects, use PersonalAssignmentSchema for personal assignments.
   assignedTo: [PersonalAssignmentSchema],
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   lastModifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -67,7 +77,9 @@ const AssignmentSchema = new mongoose.Schema({
       },
       submissionUrl: { type: String, default: '' },
       screenshots: [{ type: String }],
-      learningNotes: { type: String, default: '' }
+      learningNotes: { type: String, default: '' },
+      studentSolution: { type: String, default: '' },
+      mentorReview: MentorReviewSchema // New field for mentor review
     }
   ]
 }, { timestamps: true });

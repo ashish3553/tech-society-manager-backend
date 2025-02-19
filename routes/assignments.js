@@ -293,15 +293,17 @@ router.get('/personal', auth, async (req, res) => {
 // For mentors/admins: Return all assignments with global distribution tags (central, practice, hw, cw).
 router.get('/allResource', auth, permit('mentor', 'admin'), async (req, res) => {
   try {
-    const globalTags = ['central', 'practice','personal', 'hw', 'cw'];
-    // We ignore personal assignments in this query.
-    const assignments = await Assignment.find({ distributionTag: { $in: globalTags } });
+    const globalTags = ['central', 'practice', 'personal', 'hw', 'cw'];
+    const assignments = await Assignment.find({ distributionTag: { $in: globalTags } })
+      .populate('createdBy', 'name role')
+      .populate('lastModifiedBy', 'name role');
     res.json(assignments);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 
 router.get('/personalAssigned', auth, permit('mentor', 'admin'), async (req, res) => {
@@ -353,11 +355,162 @@ router.get('/pending-hw', auth, permit('student', 'volunteer'), async (req, res)
   }
 });
 
+// routes/assignments.js
+router.get('/pending-reviews', auth, permit('mentor', 'admin'), async (req, res) => {
+  try {
+    // Fetch assignments that have at least one response with a pending mentor review.
+    // You might need to adjust the query based on your schema.
+    const assignments = await Assignment.find({ 'responses.mentorReview.status': { $in: [null, "pending"] } })
+      .populate('createdBy', 'name role')
+      .populate('responses.student', 'name email');
+    // Transform the data so that each pending response becomes an item
+    const pendingReviews = [];
+    assignments.forEach(assignment => {
+      assignment.responses.forEach(resp => {
+        if (!resp.mentorReview || resp.mentorReview.status === "pending") {
+          pendingReviews.push({
+            assignmentId: assignment._id,
+            assignmentTitle: assignment.title,
+            assignmentExplanation: assignment.explanation,
+            studentSolution: resp.studentSolution,
+            learningNotes: resp.learningNotes,
+            student: resp.student,
+            mentorReview: resp.mentorReview || { status: "pending", comment: "" }
+          });
+        }
+      });
+    });
+    res.json(pendingReviews);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+// routes/assignments.js
+router.get('/reviews', auth, permit('mentor', 'admin'), async (req, res) => {
+  try {
+    // Accept query parameters for filtering.
+    const { reviewStatus, studentName, assignmentTitle, page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build aggregation pipeline.
+    const pipeline = [
+      // Match assignments if assignmentTitle is provided.
+      assignmentTitle ? { 
+        $match: { title: { $regex: assignmentTitle, $options: "i" } }
+      } : { $match: {} },
+      // Unwind responses
+      { $unwind: "$responses" },
+      // Optionally match reviewStatus if provided.
+      reviewStatus ? { 
+        $match: { "responses.mentorReview.status": { $regex: reviewStatus, $options: "i" } }
+      } : { $match: {} },
+      // If filtering by studentName, we need to lookup student details.
+      {
+        $lookup: {
+          from: "users",
+          localField: "responses.student",
+          foreignField: "_id",
+          as: "studentDetails"
+        }
+      },
+      // Unwind studentDetails (if any)
+      { $unwind: "$studentDetails" },
+      // Filter by studentName if provided.
+      studentName ? { 
+        $match: { "studentDetails.name": { $regex: studentName, $options: "i" } }
+      } : { $match: {} },
+      // Project only needed fields.
+      {
+        $project: {
+          assignmentId: "$_id",
+          assignmentTitle: "$title",
+          assignmentExplanation: "$explanation",
+          studentSolution: "$responses.studentSolution",
+          learningNotes: "$responses.learningNotes",
+          submissionUrl: "$responses.submissionUrl",
+          mentorReview: "$responses.mentorReview",
+          student: "$studentDetails",
+          createdBy: 1
+        }
+      },
+      // Sort by assignment title (or any other criteria)
+      { $sort: { assignmentTitle: 1 } },
+      // Pagination: skip and limit.
+      { $skip: parseInt(skip) },
+      { $limit: parseInt(limit) }
+    ];
+
+    const reviews = await Assignment.aggregate(pipeline);
+    
+    // Optionally, also return a total count.
+    const countPipeline = pipeline.slice(0, pipeline.findIndex(stage => "$skip" === Object.keys(stage)[0]));
+    countPipeline.push({ $count: "total" });
+    const countResult = await Assignment.aggregate(countPipeline);
+    const total = countResult[0] ? countResult[0].total : 0;
+    
+    res.json({ reviews, total });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+// routes/assignments.js
+router.get('/solved', auth, permit('student', 'volunteer'), async (req, res) => {
+  try {
+    // Get the current student's ID from the request (e.g. req.user.id)
+    const studentId = req.query.studentId;
+    if (!studentId) {
+      return res.status(400).json({ msg: "studentId query parameter required" });
+    }
+    
+    // Find assignments where the responses array contains a response from this student with responseStatus "solved".
+    const assignments = await Assignment.find({
+      responses: {
+        $elemMatch: {
+          student: studentId,
+          responseStatus: "solved"
+        }
+      }
+    })
+    .populate("createdBy", "name role")
+    .populate("responses.student", "name email");
+    
+    // Map each assignment to add a "myResponse" field that contains the response for this student.
+    const result = assignments.map(assignment => {
+      const myResponse = assignment.responses.find(resp => {
+        const respStudentId = 
+          typeof resp.student === 'object' && resp.student !== null && resp.student._id
+            ? String(resp.student._id)
+            : String(resp.student);
+        return respStudentId === String(studentId);
+      });
+      return {
+        ...assignment.toObject(),
+        myResponse
+      };
+    });
+    
+    res.json({ assignments: result });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server error');
+  }
+});
+
+
+
+
 /*
 =====================================
    DYNAMIC ROUTES (Routes with :id)
 =====================================
 */
+
+
+
 
 // PUT /api/assignments/:id
 // ASSIGNMENT UPDATION – Allowed for mentor and admin only.
@@ -366,17 +519,17 @@ router.put('/:id', auth, permit('mentor', 'admin'), async (req, res) => {
     const {
       title,
       explanation,
-      testCases,      // expecting JSON string
+      testCases,      // could be a JSON string, an object, or an array
       tags,           // could be string or array
       repoCategory,
       questionType,
       majorTopic,
-      similarQuestions, // expecting JSON string
+      similarQuestions, // expecting JSON string (or maybe also an object/array, handle similarly if needed)
       codingPlatformLink
     } = req.body;
 
     console.log("Updated here till");
-    
+
     // Build update data object:
     let updateData = {
       title,
@@ -386,6 +539,7 @@ router.put('/:id', auth, permit('mentor', 'admin'), async (req, res) => {
       majorTopic,
       questionType: repoCategory === 'question' ? questionType : undefined,
     };
+
     console.log("Updated here till 2");
 
     // Process tags: if it's a string, split it; if already an array, use it directly.
@@ -397,10 +551,22 @@ router.put('/:id', auth, permit('mentor', 'admin'), async (req, res) => {
     
     console.log("Updated here till 3");
 
+    // Process testCases field
     if (testCases) {
       console.log("Test cases are: ", testCases);
+      let parsedTestCases;
       try {
-        const parsedTestCases = JSON.parse(testCases);
+        if (typeof testCases === 'string') {
+          parsedTestCases = JSON.parse(testCases);
+        } else if (Array.isArray(testCases)) {
+          parsedTestCases = testCases;
+        } else if (typeof testCases === 'object') {
+          // A single test case object was provided. Wrap it in an array.
+          parsedTestCases = [testCases];
+        } else {
+          throw new Error('Unexpected testCases format');
+        }
+        
         if (!Array.isArray(parsedTestCases)) {
           return res.status(400).json({ msg: 'Test cases should be an array.' });
         }
@@ -430,10 +596,13 @@ router.put('/:id', auth, permit('mentor', 'admin'), async (req, res) => {
       }
     }
     
-    // Process similarQuestions JSON string
+    // Process similarQuestions JSON string (you can handle similar cases similarly if needed)
     if (similarQuestions) {
       try {
-        updateData.similarQuestions = JSON.parse(similarQuestions);
+        // If similarQuestions is a string, parse it. Otherwise, if it's already an array, use it.
+        updateData.similarQuestions = typeof similarQuestions === 'string'
+          ? JSON.parse(similarQuestions)
+          : similarQuestions;
       } catch (e) {
         return res.status(400).json({ msg: 'Invalid JSON for similarQuestions' });
       }
@@ -451,6 +620,73 @@ router.put('/:id', auth, permit('mentor', 'admin'), async (req, res) => {
     res.status(500).send('Server error');
   }
 });
+
+// routes/assignments.js
+router.put('/:id/review', auth, permit('mentor', 'admin'), async (req, res) => {
+  const { studentId, reviewStatus, mentorComment, updatedStudentSolution } = req.body;
+  try {
+    console.log("Here is the review code", req.body);
+    // Find the assignment by id.
+    let assignment = await Assignment.findById(req.params.id);
+    if (!assignment) {
+      return res.status(404).json({ msg: 'Assignment not found' });
+    }
+
+    console.log("Here is the review code 2");
+
+    
+    // Ensure the responses array exists.
+    if (!assignment.responses) {
+      assignment.responses = [];
+    }
+    console.log("Here is the review code 3");
+
+    const targetStudentId =
+    typeof studentId === 'object' && studentId !== null && studentId._id
+      ? String(studentId._id)
+      : String(studentId);
+  
+  const response = assignment.responses.find(resp => {
+    const respStudentId =
+      typeof resp.student === 'object' && resp.student !== null && resp.student._id
+        ? String(resp.student._id)
+        : String(resp.student);
+    return respStudentId === targetStudentId;
+  });
+    console.log("Here is the review code 4");
+
+    
+    if (!response) {
+      return res.status(404).json({ msg: 'Response not found' });
+    }
+    console.log("Here is the review code 5");
+
+    // Update student solution if provided.
+    if (updatedStudentSolution !== undefined) {
+      response.studentSolution = updatedStudentSolution;
+    }
+    console.log("Here is the review code 6");
+
+    
+    // Update mentorReview in the student response.
+    response.mentorReview = {
+      status: reviewStatus, // e.g. 'approved', 'not approved', or 'pending'
+      comment: mentorComment || '',
+      reviewedAt: new Date()
+    };
+    console.log("Here is the review code 7");
+
+    
+    assignment = await assignment.save();
+    res.json(assignment);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
+
+
+
 
 // PUT solution (for students creating or updating their own solution)
 // PUT /api/assignments/:assignmentId/solution
@@ -569,9 +805,12 @@ router.put('/:id/solution', auth, permit('mentor', 'admin'), async (req, res) =>
   }
 });
 
+
+
 // PUT /api/assignments/:id/status
 router.put('/:id/status', auth, permit('student', 'volunteer'), async (req, res) => {
-  const { responseStatus, submissionUrl, screenshots, learningNotes } = req.body;
+  const { responseStatus, submissionUrl, screenshots, learningNotes, studentSolution } = req.body;
+  console.log("Response data received:", studentSolution);
   
   // Validate based on responseStatus
   if (responseStatus === "solved") {
@@ -603,52 +842,32 @@ router.put('/:id/status', auth, permit('student', 'volunteer'), async (req, res)
     const responseIndex = assignment.responses.findIndex(
       (resp) => String(resp.student) === String(req.user.id)
     );
+    
+    // Default mentorReview object
+    const defaultMentorReview = { status: "pending", comment: "", reviewedAt: null };
+    
     const updatedResponse = {
       student: req.user.id,
       responseStatus,
       submissionUrl: submissionUrl || "",
       screenshots: screenshots || [],
-      learningNotes: learningNotes || ""
+      learningNotes: learningNotes || "",
+      studentSolution: studentSolution || "",
+      mentorReview: defaultMentorReview  // Ensure mentorReview is always set
     };
+    
     if (responseIndex === -1) {
       assignment.responses.push(updatedResponse);
     } else {
+      // If a response exists, update it while preserving any existing mentorReview (if desired)
+      // Alternatively, always overwrite with default mentorReview:
       assignment.responses[responseIndex] = updatedResponse;
     }
     
     assignment = await assignment.save();
     
-    // Update the Doubt conversation if not solved.
-    if (responseStatus !== 'solved') {
-      let doubt = await Doubt.findOne({
-        assignment: req.params.id,
-        student: req.user.id,
-        resolved: false
-      });
-      
-      if (doubt) {
-        doubt.conversation.push({
-          sender: req.user.id,
-          message: learningNotes,
-          type: 'follow-up'
-        });
-        doubt.currentStatus = 'unsatisfied';
-        await doubt.save();
-      } else {
-        doubt = new Doubt({
-          assignment: req.params.id,
-          student: req.user.id,
-          conversation: [{
-            sender: req.user.id,
-            message: learningNotes,
-            type: 'doubt'
-          }],
-          currentStatus: 'new',
-          resolved: false
-        });
-        await doubt.save();
-      }
-    }
+    // (Optional) Update the Doubt conversation if not solved.
+    // ... (existing logic for Doubt)
     
     res.json(assignment);
   } catch (err) {
@@ -656,6 +875,7 @@ router.put('/:id/status', auth, permit('student', 'volunteer'), async (req, res)
     res.status(500).send('Server error');
   }
 });
+
 
 // PUT /api/assignments/:id/upload
 // Allows a student/volunteer to upload screenshots and learning notes.

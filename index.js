@@ -46,6 +46,7 @@ const dailyBriefingRoutes = require('./routes/dailyBriefing');
 const messageRoutes = require('./routes/message');
 const uploadRoute = require('./routes/upload');
 const solutionRoutes = require('./routes/solution');
+const goalRoutes = require('./routes/goalRoutes');
 
 
 
@@ -68,6 +69,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/upload', uploadRoute);
+app.use('/api/goals', goalRoutes);
+
 
 
 

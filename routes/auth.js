@@ -164,6 +164,7 @@ router.get('/verify-email', async (req, res) => {
   // server/routes/auth.js
   router.post('/forgot-password', async (req, res) => {
     const { email } = req.body;
+    console.log("Abhi ye bhi chal rha hai authentication");
     if (!email) return res.status(400).json({ msg: 'Email is required.' });
     try {
       const user = await User.findOne({ email });

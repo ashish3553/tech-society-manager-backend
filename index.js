@@ -1,19 +1,24 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
-
-
-
-
-
 
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://tech-society-manager.vercel.app', 'https://tech-society-manager-git-main-vivekkumar.vercel.app'] 
+    : ['http://localhost:5173','http://localhost:5174', 'http://localhost:5001', 'http://127.0.0.1:5173'], // Common Vite development ports
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
+}));
+
+
 app.use(express.json());
 // Optionally add URL-encoded middleware if you expect form data besides files:
 app.use(express.urlencoded({ extended: false }));
@@ -28,6 +33,13 @@ const connectDB = async()=>{
         console. log('MongoDB database is connection failed', err)
     }
 }
+
+// Add request logging middleware
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    console.log('Headers:', req.headers);
+    next();
+  });
 
 // Define a test route
 app.get('/', (req, res) => {
@@ -74,14 +86,23 @@ app.use('/api/goals', goalRoutes);
 
 
 
-const isDevelopment = 'production' !== 'production';
+const isDevelopment = process.env.NODE_ENV !== 'production';
 if (isDevelopment) {
-    app.listen(PORT, () => {
-        connectDB();
-        console.log(`Server is running on port ${PORT}`);
-    }); 
+    // Connect to database before starting server
+    connectDB().then(() => {
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`Server is running on port ${PORT}`);
+            console.log(`Access it at http://localhost:${PORT} or http://<your-ip-address>:${PORT}`);
+        });
+    }).catch(err => {
+        console.error('Failed to connect to MongoDB:', err);
+    });
 } else { 
-    connectDB();
+    connectDB().then(() => {
+        console.log('Production mode: MongoDB connected');
+    }).catch(err => {
+        console.error('Production mode: Failed to connect to MongoDB:', err);
+    });
 }
 
 

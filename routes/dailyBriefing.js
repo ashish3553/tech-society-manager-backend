@@ -99,8 +99,7 @@ router.get('/recent', async (req, res) => {
   try {
     // Fetch two most recent briefings
     const briefings = await DailyBriefing.find()
-      .sort({ createdAt: -1 })
-      .limit(2);
+      .sort({ createdAt: -1 });
 
     // For each briefing, fetch the user details using the createdBy field (which stores the userId)
     const briefingsWithUser = await Promise.all(
